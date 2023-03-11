@@ -900,6 +900,10 @@ public:
 	                              Arena&);
 	StringRef encrypt(const uint8_t*, const int, BlobCipherEncryptHeaderRef*, Arena&);
 
+	void encryptInplace(uint8_t* plaintext, const int plaintextLen, BlobCipherEncryptHeader* header);
+
+	void encryptInplace(uint8_t* plaintext, const int plaintextLen, BlobCipherEncryptHeaderRef* headerRef);
+
 private:
 	void init();
 
