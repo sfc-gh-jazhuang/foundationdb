@@ -1120,27 +1120,19 @@ void EncryptBlobCipherAes265Ctr::encryptInplace(uint8_t* plaintext, const int pl
 		throw encrypt_ops_error();
 	}
 
-	// encrypt the rest of the data
-	int finalBytes{ 0 };
-	std::cout << "JJJ1: " << bytes << ":" << plaintextLen << std::endl;
-	if (bytes < plaintextLen) {
-		std::cout << "JJJ3: found" << std::endl;
-		ASSERT(plaintextLen - bytes < AES_BLOCK_SIZE);
-		uint8_t tmpBuff[AES_BLOCK_SIZE];
-		if (EVP_EncryptFinal_ex(ctx, tmpBuff, &finalBytes) != 1) {
-			TraceEvent(SevWarn, "BlobCipherEncryptFinalFailed")
-			    .detail("BaseCipherId", textCipherKey->getBaseCipherId())
-			    .detail("EncryptDomainId", textCipherKey->getDomainId());
-			throw encrypt_ops_error();
-		}
-
-		memcpy(plaintext + bytes, tmpBuff, finalBytes);
-	}
-
-	if ((bytes + finalBytes) != plaintextLen) {
+	if (bytes != plaintextLen) {
 		TraceEvent(SevWarn, "BlobCipherEncryptUnexpectedCipherLen")
 		    .detail("PlaintextLen", plaintextLen)
-		    .detail("EncryptedBufLen", bytes + finalBytes);
+		    .detail("EncryptedBufLen", bytes);
+		throw encrypt_ops_error();
+	}
+
+	// all data should be encrypted, call encryptFinal to cleanup
+	int finalBytes{ 0 };
+	if (EVP_EncryptFinal_ex(ctx, plaintext + bytes, &finalBytes) != 1) {
+		TraceEvent(SevWarn, "BlobCipherEncryptFinalFailed")
+		    .detail("BaseCipherId", textCipherKey->getBaseCipherId())
+		    .detail("EncryptDomainId", textCipherKey->getDomainId());
 		throw encrypt_ops_error();
 	}
 

@@ -20,6 +20,7 @@
 
 #include "benchmark/benchmark.h"
 
+#include "fdbclient/BlobCipher.h"
 #include "flow/StreamCipher.h"
 #include "flowbench/GlobalData.h"
 
@@ -77,3 +78,87 @@ static void bench_decrypt(benchmark::State& state) {
 
 BENCHMARK(bench_encrypt)->Ranges({ { 1 << 12, 1 << 20 }, { 1, 1 << 12 } });
 BENCHMARK(bench_decrypt)->Ranges({ { 1 << 12, 1 << 20 }, { 1, 1 << 12 } });
+
+// Construct a dummy External Key Manager representation and populate with some keys
+class BaseCipher : public ReferenceCounted<BaseCipher>, NonCopyable {
+public:
+	EncryptCipherDomainId domainId;
+	int len;
+	EncryptCipherBaseKeyId keyId;
+	std::unique_ptr<uint8_t[]> key;
+	int64_t refreshAt;
+	int64_t expireAt;
+	EncryptCipherRandomSalt generatedSalt;
+
+	BaseCipher(const EncryptCipherDomainId& dId,
+	           const EncryptCipherBaseKeyId& kId,
+	           const int64_t rAt,
+	           const int64_t eAt)
+	  : domainId(dId), len(deterministicRandom()->randomInt(AES_256_KEY_LENGTH / 2, AES_256_KEY_LENGTH + 1)),
+	    keyId(kId), key(std::make_unique<uint8_t[]>(len)), refreshAt(rAt), expireAt(eAt) {
+		deterministicRandom()->randomBytes(key.get(), len);
+	}
+};
+
+using BaseKeyMap = std::unordered_map<EncryptCipherBaseKeyId, Reference<BaseCipher>>;
+using DomainKeyMap = std::unordered_map<EncryptCipherDomainId, BaseKeyMap>;
+
+static void bench_aes_encrypt(benchmark::State& state) {
+	DomainKeyMap domainKeyMap;
+	const EncryptCipherDomainId minDomainId = 1;
+	const EncryptCipherDomainId maxDomainId = deterministicRandom()->randomInt(minDomainId, minDomainId + 10) + 5;
+	const EncryptCipherBaseKeyId minBaseCipherKeyId = 100;
+	const EncryptCipherBaseKeyId maxBaseCipherKeyId =
+	    deterministicRandom()->randomInt(minBaseCipherKeyId, minBaseCipherKeyId + 50) + 15;
+	for (int dId = minDomainId; dId <= maxDomainId; dId++) {
+		for (int kId = minBaseCipherKeyId; kId <= maxBaseCipherKeyId; kId++) {
+			domainKeyMap[dId].emplace(
+			    kId,
+			    makeReference<BaseCipher>(
+			        dId, kId, std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max()));
+		}
+	}
+	ASSERT_EQ(domainKeyMap.size(), maxDomainId);
+
+	Reference<BlobCipherKeyCache> cipherKeyCache = BlobCipherKeyCache::getInstance();
+
+	for (auto& domainItr : domainKeyMap) {
+		for (auto& baseKeyItr : domainItr.second) {
+			Reference<BaseCipher> baseCipher = baseKeyItr.second;
+
+			cipherKeyCache->insertCipherKey(baseCipher->domainId,
+			                                baseCipher->keyId,
+			                                baseCipher->key.get(),
+			                                baseCipher->len,
+			                                baseCipher->refreshAt,
+			                                baseCipher->expireAt);
+			Reference<BlobCipherKey> fetchedKey = cipherKeyCache->getLatestCipherKey(baseCipher->domainId);
+			baseCipher->generatedSalt = fetchedKey->getSalt();
+		}
+	}
+
+	Reference<BlobCipherKey> cipherKey = cipherKeyCache->getLatestCipherKey(minDomainId);
+	Reference<BlobCipherKey> headerCipherKey = cipherKeyCache->getLatestCipherKey(ENCRYPT_HEADER_DOMAIN_ID);
+	Arena arena;
+	uint8_t iv[AES_256_IV_LENGTH];
+	deterministicRandom()->randomBytes(&iv[0], AES_256_IV_LENGTH);
+	const int bufLen = 8003;
+	uint8_t orgData[bufLen];
+	deterministicRandom()->randomBytes(&orgData[0], bufLen);
+
+	EncryptBlobCipherAes265Ctr encryptor(cipherKey,
+	                                     headerCipherKey,
+	                                     iv,
+	                                     AES_256_IV_LENGTH,
+	                                     EncryptAuthTokenMode::ENCRYPT_HEADER_AUTH_TOKEN_MODE_NONE,
+	                                     BlobCipherMetrics::TEST);
+
+	while (state.KeepRunning()) {
+		BlobCipherEncryptHeader header;
+//		StringRef ciphertext = encryptor.encrypt(&orgData[0], bufLen, &header, arena)->toStringRef();
+//		memcpy(orgData, ciphertext.begin(), bufLen);
+		encryptor.encryptInplace(&orgData[0], bufLen, &header);
+	}
+}
+
+BENCHMARK(bench_aes_encrypt);

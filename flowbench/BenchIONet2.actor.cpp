@@ -77,3 +77,23 @@ static void bench_ionet2(benchmark::State& benchState) {
 }
 
 BENCHMARK(bench_ionet2)->Range(1, 1 << 16)->ReportAggregatesOnly(true);
+
+
+
+//static void bench_encrypt(benchmark::State& benchState) {
+//	Reference<BlobCipherKeyCache> cipherKeyCache = BlobCipherKeyCache::getInstance();
+//	Reference<BaseCipher> headerBaseCipher = makeReference<BaseCipher>(
+//	    ENCRYPT_HEADER_DOMAIN_ID, 1, std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max());
+//	cipherKeyCache->insertCipherKey(headerBaseCipher->domainId,
+//	                                headerBaseCipher->keyId,
+//	                                headerBaseCipher->key.get(),
+//	                                headerBaseCipher->len,
+//	                                headerBaseCipher->refreshAt,
+//	                                headerBaseCipher->expireAt);
+//
+//	while (benchState.KeepRunning()) {
+//		std::cout << "JJJ7" << std::endl;
+//	}
+//}
+//
+//BENCHMARK(bench_encrypt);
