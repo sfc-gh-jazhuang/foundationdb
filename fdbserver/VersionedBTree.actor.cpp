@@ -6525,7 +6525,7 @@ private:
 				// Set the child page ID, which has already been allocated in result.arena()
 				newLinks.back().setChildPage(maybeNewID);
 				childrenChanged = true;
-//				expectedUpperBound = decodeUpperBound;
+				expectedUpperBound = decodeUpperBound;
 			} else {
 				childrenChanged = false;
 			}
