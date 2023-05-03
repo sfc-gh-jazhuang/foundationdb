@@ -4979,6 +4979,10 @@ public:
 
 	void close() { return close_impl(false); }
 
+	Future<int> getClear() {
+		return m_lazyClearActor;
+	}
+
 	StorageBytes getStorageBytes() const { return m_pager->getStorageBytes(); }
 
 	// Set key to value as of the next commit
@@ -10426,6 +10430,7 @@ TEST_CASE("Lredwood/correctness/btree") {
 				Future<Void> closedFuture = btree->onClosed();
 				btree->close();
 				wait(closedFuture);
+//				wait(btree->getClear());
 
 				printf("Reopening btree from disk.\n");
 				IPager2* pager = new DWALPager(

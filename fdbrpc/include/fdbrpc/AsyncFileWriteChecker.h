@@ -34,6 +34,9 @@ public:
 	Future<int> read(void* data, int length, int64_t offset) override {
 		// Lambda must hold a reference to this to keep it alive until after the read
 		auto self = Reference<AsyncFileWriteChecker>::addRef(this);
+		if (offset / 4096 == 5664) {
+			std::cout << "JJJ7: read: " << length << ", reference: " << self->debugGetReferenceCount() << std::endl;
+		}
 		return map(m_f->read(data, length, offset), [self, data, offset](int r) {
 			self->updateChecksumHistory(false, offset, r, (uint8_t*)data);
 			return r;
@@ -85,9 +88,13 @@ public:
 		// Adjust the budget by the initial capacity of history, which should be 0 but maybe not for some
 		// implementations.
 		checksumHistoryBudget.get() -= checksumHistory.capacity();
+//		std::cout << "JJJ8: create new checker: " << this << std::endl;
 	}
 
-	~AsyncFileWriteChecker() override { checksumHistoryBudget.get() += checksumHistory.capacity(); }
+	~AsyncFileWriteChecker() override {
+		checksumHistoryBudget.get() += checksumHistory.capacity();
+//		std::cout << "JJJ9: destroy checker: " << this << std::endl;
+	}
 
 private:
 	Reference<IAsyncFile> m_f;
@@ -121,8 +128,8 @@ private:
 			if (checksumHistoryBudget.get() > 0) {
 				// Resize history and update budget based on capacity change
 				auto initialCapacity = checksumHistory.capacity();
-				checksumHistory.resize(checksumHistory.size() +
-				                       std::min<int>(checksumHistoryBudget.get(), pageEnd - checksumHistory.size()));
+				int plusSize = std::min<int>(checksumHistoryBudget.get(), pageEnd - checksumHistory.size());
+				checksumHistory.resize(checksumHistory.size() + plusSize);
 				checksumHistoryBudget.get() -= (checksumHistory.capacity() - initialCapacity);
 			}
 
@@ -134,6 +141,19 @@ private:
 		while (page < pageEnd) {
 			uint32_t checksum = crc32c_append(0xab12fd93, start, checksumHistoryPageSize);
 			WriteInfo& history = checksumHistory[page];
+			if (page == 5664) {
+				if (write) {
+					std::cout << "JJJ1: write:" << checksum << ", time: " << now() << std::endl;
+					if (checksum == 2388850846 || checksum == 1229110601) {
+						std::cout << "JJJ4: found" << std::endl;
+					}
+				} else {
+					std::cout << "JJJ2: read:" << checksum << ", time: " << now() << "; expect: " << history.checksum << ", addr: " << &(history.checksum) << ", reference: " << debugGetReferenceCount() << std::endl;
+					if (checksum == 1229110601) {
+						std::cout << "JJJ6: break here" << std::endl;
+					}
+				}
+			}
 			// printf("%d %d %u %u\n", write, page, checksum, history.checksum);
 
 #if VALGRIND
@@ -144,19 +164,24 @@ private:
 
 			// For writes, just update the stored sum
 			if (write) {
-				history.timestamp = (uint32_t)now();
-				history.checksum = checksum;
+				checksumHistory[page].timestamp = (uint32_t)now();
+				checksumHistory[page].checksum = checksum;
+//				history.timestamp = (uint32_t)now();
+//				history.checksum = checksum;
+				if (page == 5664) {
+					std::cout << "JJJ5: updated to: " << checksum << ", addr: " << &(history.checksum) << ", time: " << now() << std::endl;
+				}
 			} else {
-				if (history.checksum != 0 && history.checksum != checksum) {
+				if (checksumHistory[page].checksum != 0 && checksumHistory[page].checksum != checksum) {
 					// For reads, verify the stored sum if it is not 0.  If it fails, clear it.
 					TraceEvent(SevError, "AsyncFileLostWriteDetected")
 					    .error(checksum_failed())
 					    .detail("Filename", m_f->getFilename())
 					    .detail("PageNumber", page)
 					    .detail("ChecksumOfPage", checksum)
-					    .detail("ChecksumHistory", history.checksum)
-					    .detail("LastWriteTime", history.timestamp);
-					history.checksum = 0;
+					    .detail("ChecksumHistory", checksumHistory[page].checksum)
+					    .detail("LastWriteTime", checksumHistory[page].timestamp);
+					checksumHistory[page].checksum = 0;
 				}
 			}
 
