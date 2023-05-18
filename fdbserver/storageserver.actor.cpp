@@ -6635,9 +6635,7 @@ ACTOR Future<Void> tryGetRangeFromBlob(PromiseStream<RangeResult> results,
 				rows.more = false;
 			} else {
 				rows.more = true;
-				// no need to set readThrough, as the next read key range has to be the next chunkRange
 			}
-			ASSERT(!rows.readThrough.present());
 			results.send(rows);
 		}
 
@@ -7631,10 +7629,10 @@ ACTOR Future<Void> fetchKeys(StorageServer* data, AddingShard* shard) {
 						}
 					}
 					if (this_block.more) {
-						blockBegin = this_block.getReadThrough();
+						nfk = this_block.getReadThrough();
 					} else {
 						ASSERT(!this_block.readThrough.present());
-						blockBegin = rangeEnd;
+						nfk = rangeEnd;
 					}
 					this_block = RangeResult();
 
